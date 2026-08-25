@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let button = statusItem.button else { return }
         button.action = #selector(statusItemClicked(_:))
         button.target = self
-        button.toolTip = "CalBar — Menu Bar Calendar"
+        button.toolTip = "\(AppInfo.longDisplay) — Menu Bar Calendar"
         refreshStatusIcon()
     }
 
@@ -63,11 +63,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func configureMenu() {
+        let about = NSMenuItem(title: AppInfo.longDisplay, action: nil, keyEquivalent: "")
+        about.isEnabled = false
         let launch = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
         launch.target = self
         launch.identifier = NSUserInterfaceItemIdentifier("launchAtLogin")
         let quit = NSMenuItem(title: "Quit CalBar", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
+        statusMenu.addItem(about)
+        statusMenu.addItem(.separator())
         statusMenu.addItem(launch)
         statusMenu.addItem(.separator())
         statusMenu.addItem(quit)

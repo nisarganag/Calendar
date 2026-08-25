@@ -35,6 +35,22 @@ extension Date {
     }
 }
 
+enum AppInfo {
+    static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+    }
+
+    static var build: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+    }
+
+    /// e.g. "v1.0.2"
+    static var shortDisplay: String { "v\(version)" }
+
+    /// e.g. "CalBar v1.0.2 (2)"
+    static var longDisplay: String { "CalBar v\(version) (\(build))" }
+}
+
 final class CalendarViewModel: ObservableObject {
     /// How long a browsed month survives after the panel is closed (or the app quits).
     static let reopenGracePeriod: TimeInterval = 10

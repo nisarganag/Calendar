@@ -57,13 +57,22 @@ struct CalendarPanelView: View {
             calendarTile
             bottomCard
             footerStrip
+            versionLabel
         }
         .padding(.horizontal, 10)
         .padding(.top, 12)
-        .padding(.bottom, 10)
+        .padding(.bottom, 8)
         .frame(width: panelWidth)
         .animation(.easeInOut(duration: 0.2), value: viewModel.showGoToDate)
         .animation(.easeInOut(duration: 0.18), value: viewModel.displayedMonth)
+    }
+
+    private var versionLabel: some View {
+        Text("CalBar \(AppInfo.shortDisplay)")
+            .font(.system(size: 8.5, weight: .medium, design: .rounded))
+            .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+            .frame(maxWidth: .infinity)
+            .help(AppInfo.longDisplay)
     }
 
     // MARK: Header
