@@ -36,12 +36,12 @@ extension Date {
 }
 
 final class CalendarViewModel: ObservableObject {
-    /// How long a browsed month survives after closing the popover (or quitting).
+    /// How long a browsed month survives after the panel is closed (or the app quits).
     static let reopenGracePeriod: TimeInterval = 10
 
     private static let kDisplayedMonth = "CalBar.displayedMonth"
     private static let kSelectedDate = "CalBar.selectedDate"
-    private static let kLastActivity = "CalBar.lastActivity"
+    private static let kContextSavedAt = "CalBar.contextSavedAt"
 
     @Published var displayedMonth: Date
     @Published var selectedDate: Date
@@ -57,13 +57,7 @@ final class CalendarViewModel: ObservableObject {
     @Published var eventsByDay: [String: [String]] {
         didSet { EventStore.save(eventsByDay) }
     }
-    @Published var draftEvent: String = "" {
-        didSet {
-            // Keep the grace window alive while the user is typing,
-            // so the idle snap-back never yanks the calendar mid-edit.
-            if !draftEvent.isEmpty { recordActivity() }
-        }
-    }
+    @Published var draftEvent: String = ""
 
     // MARK: Go to date
     @Published var showGoToDate: Bool = false
@@ -92,21 +86,23 @@ final class CalendarViewModel: ObservableObject {
         restoreRecentContextIfFresh()
     }
 
-    // MARK: - Reopen grace window
+    // MARK: - Close-time grace window
 
-    private var lastActivityDate: Date {
-        let ts = UserDefaults.standard.double(forKey: Self.kLastActivity)
+    private var contextSavedDate: Date {
+        let ts = UserDefaults.standard.double(forKey: Self.kContextSavedAt)
         return ts > 0 ? Date(timeIntervalSince1970: ts) : .distantPast
     }
 
-    func recordActivity() {
+    /// Persists the browsed context, stamped with the moment the panel was
+    /// closed (or the app quit). The grace window counts from this moment.
+    func saveContext() {
         UserDefaults.standard.set(displayedMonth.timeIntervalSince1970, forKey: Self.kDisplayedMonth)
         UserDefaults.standard.set(selectedDate.timeIntervalSince1970, forKey: Self.kSelectedDate)
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.kLastActivity)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.kContextSavedAt)
     }
 
     private func restoreRecentContextIfFresh() {
-        guard Date().timeIntervalSince(lastActivityDate) < Self.reopenGracePeriod,
+        guard Date().timeIntervalSince(contextSavedDate) < Self.reopenGracePeriod,
               let monthTS = UserDefaults.standard.object(forKey: Self.kDisplayedMonth) as? TimeInterval,
               let selectedTS = UserDefaults.standard.object(forKey: Self.kSelectedDate) as? TimeInterval
         else { return }
@@ -115,20 +111,14 @@ final class CalendarViewModel: ObservableObject {
         rebuild()
     }
 
-    /// Called right before the popover opens. Within the grace window the
-    /// previously browsed month is kept; afterwards it snaps back to today.
+    /// Called right before the panel opens. The panel is always restored
+    /// exactly as it was left; only after the grace window has elapsed since
+    /// it was last closed does it snap back to today.
     func prepareForPopoverOpen() {
         refreshDayIfNeeded()
-        if Date().timeIntervalSince(lastActivityDate) >= Self.reopenGracePeriod {
+        if Date().timeIntervalSince(contextSavedDate) >= Self.reopenGracePeriod {
             resetToTodayIfAway()
         }
-    }
-
-    /// Live enforcement while the popover is open: after `reopenGracePeriod`
-    /// seconds of no interaction the calendar returns to today.
-    func enforceIdleSnapBack() {
-        guard Date().timeIntervalSince(lastActivityDate) >= Self.reopenGracePeriod else { return }
-        resetToTodayIfAway()
     }
 
     private func resetToTodayIfAway() {
@@ -210,7 +200,6 @@ final class CalendarViewModel: ObservableObject {
         guard let m = calendar.date(byAdding: .month, value: delta, to: displayedMonth) else { return }
         displayedMonth = m.startOfMonth(using: calendar)
         rebuild()
-        recordActivity()
     }
 
     func goToday() {
@@ -218,12 +207,10 @@ final class CalendarViewModel: ObservableObject {
         selectedDate = today
         displayedMonth = today.startOfMonth(using: calendar)
         rebuild()
-        recordActivity()
     }
 
     func select(_ date: Date) {
         selectedDate = date
-        recordActivity()
     }
 
     func isSelected(_ c: DayCell) -> Bool {
@@ -241,7 +228,6 @@ final class CalendarViewModel: ObservableObject {
         selectedDate = now
         displayedMonth = now.startOfMonth(using: calendar)
         rebuild()
-        recordActivity()
     }
 
     // MARK: - Go to date
@@ -277,7 +263,6 @@ final class CalendarViewModel: ObservableObject {
             selectedDate = d
             displayedMonth = d.startOfMonth(using: calendar)
             rebuild()
-            recordActivity()
         }
         showGoToDate = false
     }
@@ -300,7 +285,6 @@ final class CalendarViewModel: ObservableObject {
         let key = EventStore.key(for: selectedDate)
         eventsByDay[key, default: []].append(text)
         draftEvent = ""
-        recordActivity()
     }
 
     func removeEvents(at offsets: IndexSet) {

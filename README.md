@@ -48,10 +48,10 @@ CalBar is a lightweight, native macOS menu bar calendar written entirely in Swif
 
 ### 🧠 10-Second Memory
 CalBar remembers where you were — briefly:
-1. Browse away (e.g. 5 months ahead) and close the panel
+1. Browse anywhere (e.g. 5 months ahead) and **close the panel**
 2. **Reopen within 10 seconds** → you land exactly where you left off *(even after a full quit/relaunch)*
-3. After 10 seconds of idle → it snaps back to today automatically
-4. Any interaction (navigation, selection, typing) resets the 10s window, so you're never yanked mid-action
+3. **Reopen after 10 seconds** → it's back on today, ready for a fresh glance
+4. The countdown starts when the panel closes — while it's open you can browse as long as you like without anything jumping around
 
 ### 🪟 Liquid Glass Design
 - Floating glass tiles composed in a `GlassEffectContainer` — header, grid, event card, footer
@@ -123,7 +123,7 @@ Calendar/
 
 - **Grid**: computed from `Calendar.current` — weekday offset for the configured week start, always rendered as 6×42 cells with adjacent-month fillers
 - **Events**: `[yyyy-MM-dd: [String]]` dictionary persisted in `UserDefaults`; mutations save-through
-- **Grace window**: last-activity timestamp persisted alongside the browsed month; evaluated on popover open and enforced by a 2 s idle timer while visible
+- **Grace window**: the browsed month and selection are persisted with a timestamp taken when the panel closes (or the app quits); on the next open, anything older than 10 s resets to today
 - **Status icon**: drawn at runtime into 1x+2x bitmap reps, `.isTemplate = true`, digits punched out via `destinationOut` compositing
 - **Login item**: `SMAppService.mainApp.register()` (macOS 13+ ServiceManagement), re-synced against system state on every launch
 

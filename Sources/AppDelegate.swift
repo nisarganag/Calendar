@@ -18,6 +18,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         configureMenu()
         viewModel.syncLaunchAtLoginStatus()
         startDayRolloverTimer()
+        observePopoverClose()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Quitting counts as closing the panel: stamp the grace window now.
+        viewModel.saveContext()
+    }
+
+    /// The grace window is measured from the moment the panel closes, so the
+    /// browsed month is never disturbed while the panel is open.
+    private func observePopoverClose() {
+        NotificationCenter.default.addObserver(
+            forName: NSPopover.didCloseNotification,
+            object: popover,
+            queue: .main
+        ) { [weak self] _ in
+            self?.viewModel.saveContext()
+        }
     }
 
     private func configureStatusItem() {
@@ -98,15 +116,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func startDayRolloverTimer() {
         dayCheckTimer?.invalidate()
-        dayCheckTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        dayCheckTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.refreshStatusIcon()
             self.viewModel.refreshDayIfNeeded()
-            // Only enforce the idle snap-back while the panel is visible;
-            // when it's hidden, prepareForPopoverOpen() decides on reopen.
-            if self.popover.isShown {
-                self.viewModel.enforceIdleSnapBack()
-            }
         }
     }
 }
