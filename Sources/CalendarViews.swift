@@ -255,10 +255,7 @@ struct CalendarPanelView: View {
                 // Untimed is the default, so a quick note stays a one-field
                 // affair; the clock is one click away when a time matters.
                 if viewModel.draftMinutes != nil {
-                    TimeField(minutes: Binding(
-                        get: { viewModel.draftMinutes ?? 0 },
-                        set: { viewModel.draftMinutes = $0 }
-                    ))
+                    TimeField(viewModel: viewModel)
                 }
 
                 Button {
@@ -721,22 +718,21 @@ private extension View {
 /// zero-padded form the event rows use, so the two always agree, and keeps both
 /// typing and stepping.
 private struct TimeField: View {
-    @Binding var minutes: Int
+    @ObservedObject var viewModel: CalendarViewModel
 
-    /// Non-nil only while the user is mid-edit, so stepper changes still show
-    /// through and a half-typed value is never committed.
-    @State private var draft: String?
-
-    private var text: Binding<String> {
-        Binding(
-            get: { draft ?? EventTimeParser.display(minutes) },
-            set: { draft = $0 }
-        )
-    }
+    /// The field's text is plain local state, deliberately not a binding that
+    /// shadows the stored value.
+    ///
+    /// An earlier version derived the text from `draft ?? render(minutes)`.
+    /// TextField writes back through its binding, which set `draft`, and once
+    /// `draft` was non-nil the getter never consulted `minutes` again — so the
+    /// stepper updated the stored time while the display stayed frozen, which
+    /// read as the arrows doing nothing at all.
+    @State private var text: String = ""
 
     var body: some View {
         HStack(spacing: 3) {
-            TextField("", text: text)
+            TextField("", text: $text)
                 .textFieldStyle(.plain)
                 .font(Cal.digits(10.5, .semibold))
                 .multilineTextAlignment(.center)
@@ -750,21 +746,47 @@ private struct TimeField: View {
                 .onSubmit(commit)
                 .help("Type a time, or use the arrows")
 
-            Stepper("", value: $minutes, in: 0...(24 * 60 - 1), step: 5)
+            Stepper("", value: minutesBinding, in: 0...(24 * 60 - 1), step: 5)
                 .labelsHidden()
                 .controlSize(.mini)
         }
+        .onAppear { syncText(viewModel.draftMinutes) }
+        // The stored time is the source of truth. Typing only changes `text`,
+        // so this never fights the user mid-edit; it redraws when the stepper
+        // moves or a commit rewrites the value into canonical form.
+        //
+        // Takes the value from the publisher rather than re-reading the model:
+        // @Published fires in willSet, so at this point `viewModel.draftMinutes`
+        // is still the previous value — reading it left the field frozen, which
+        // is the whole reason the arrows looked dead.
+        .onReceive(viewModel.$draftMinutes) { syncText($0) }
+    }
+
+    private var minutesBinding: Binding<Int> {
+        Binding(
+            get: { viewModel.draftMinutes ?? 0 },
+            set: { viewModel.draftMinutes = $0 }
+        )
+    }
+
+    private func syncText(_ minutes: Int?) {
+        guard let minutes else { return }
+        let rendered = EventTimeParser.display(minutes)
+        if text != rendered { text = rendered }
     }
 
     /// Accepts anything the event parser accepts — "6:30 pm", "18:30", "6 pm".
     /// An unparseable entry is discarded and the field snaps back, rather than
     /// silently storing something the user did not mean.
     private func commit() {
-        defer { draft = nil }
-        guard let entry = draft?.trimmingCharacters(in: .whitespaces), !entry.isEmpty else { return }
-        if let parsed = EventTimeParser.minutes(from: entry.replacingOccurrences(of: " ", with: "")) {
-            minutes = parsed
+        let entry = text.trimmingCharacters(in: .whitespaces)
+        if !entry.isEmpty,
+           let parsed = EventTimeParser.minutes(from: entry.replacingOccurrences(of: " ", with: "")) {
+            viewModel.draftMinutes = parsed
+            syncText(parsed)
+            return
         }
+        syncText(viewModel.draftMinutes)
     }
 }
 

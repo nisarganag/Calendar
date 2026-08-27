@@ -102,6 +102,16 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         }
         if env["CALBAR_WEEKSTART"] == "sun" { vm.weekStartsMonday = false }
         if env["CALBAR_TIME"] == "1" { vm.toggleDraftTime(); vm.draftEvent = "Retro" }
+        if env["CALBAR_TIME"] == "2" {
+            vm.toggleDraftTime()
+            vm.draftEvent = "Retro"
+            // Same mutation the stepper performs. If the field still shows the
+            // armed time after this, the display is frozen again.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                self.vm.draftMinutes = 7 * 60 + 15
+                self.log("stepper-sim set draftMinutes=435 (07:15 AM)")
+            }
+        }
         if env["CALBAR_GOTO"] == "1" { vm.openGoToDate() }
         if env["CALBAR_EMPTY"] == "1" {
             vm.eventsByDay = [:]
