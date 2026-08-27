@@ -301,6 +301,7 @@ final class CalendarViewModel: ObservableObject {
         let key = EventStore.key(for: selectedDate)
         eventsByDay[key, default: []].append(text)
         draftEvent = ""
+        rebuild()
     }
 
     func removeEvents(at offsets: IndexSet) {
@@ -309,6 +310,7 @@ final class CalendarViewModel: ObservableObject {
         if eventsByDay[key]?.isEmpty == true {
             eventsByDay.removeValue(forKey: key)
         }
+        rebuild()
     }
 
     // MARK: - Launch at login

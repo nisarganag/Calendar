@@ -13,6 +13,8 @@ swiftc -O -swift-version 5 \
     "$ROOT/Sources/main.swift" \
     "$ROOT/Sources/AppDelegate.swift" \
     "$ROOT/Sources/StatusBarIcon.swift" \
+    "$ROOT/Sources/Palette.swift" \
+    "$ROOT/Sources/PopoverChrome.swift" \
     "$ROOT/Sources/CalendarViewModel.swift" \
     "$ROOT/Sources/CalendarViews.swift" \
     -o "$BUILD_DIR/$APP_NAME" \

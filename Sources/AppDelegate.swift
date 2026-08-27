@@ -107,6 +107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let button = statusItem.button else { return }
         viewModel.prepareForPopoverOpen()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // Strip the popover's own backing so the panel's glass refracts the
+        // desktop instead of a second blur layer. Must run after show(), when
+        // the popover window exists.
+        PopoverChrome.makeTransparent(popover)
         popover.contentViewController?.view.window?.makeKey()
     }
 
