@@ -36,4 +36,22 @@ codesign --force --sign - --timestamp=none "$APP_DIR"
 codesign --verify --strict "$APP_DIR" && echo "    signature OK"
 
 cp -Rf "$APP_DIR" "$ROOT/dist/"
+
+echo "==> Building $APP_NAME.dmg..."
+STAGING="$BUILD_DIR/dmg-staging"
+rm -rf "$STAGING"
+mkdir -p "$STAGING"
+cp -R "$APP_DIR" "$STAGING/"
+ln -s /Applications "$STAGING/Applications"
+rm -f "$ROOT/dist/$APP_NAME.dmg"
+hdiutil create \
+    -volname "$APP_NAME" \
+    -srcfolder "$STAGING" \
+    -fs HFS+ \
+    -format UDZO \
+    -quiet \
+    "$ROOT/dist/$APP_NAME.dmg"
+rm -rf "$STAGING"
+
 echo "==> Done: $ROOT/dist/$APP_NAME.app"
+echo "         $ROOT/dist/$APP_NAME.dmg"
