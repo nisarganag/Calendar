@@ -14,6 +14,10 @@ swiftc -O -swift-version 5 \
     "$ROOT/Sources/AppDelegate.swift" \
     "$ROOT/Sources/StatusBarIcon.swift" \
     "$ROOT/Sources/Palette.swift" \
+    "$ROOT/Sources/EventStore.swift" \
+    "$ROOT/Sources/EventTimeParser.swift" \
+    "$ROOT/Sources/KeyboardCommands.swift" \
+    "$ROOT/Sources/HotKey.swift" \
     "$ROOT/Sources/PopoverChrome.swift" \
     "$ROOT/Sources/CalendarViewModel.swift" \
     "$ROOT/Sources/CalendarViews.swift" \

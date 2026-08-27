@@ -8,6 +8,7 @@ import SwiftUI
 final class PreviewDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     let popover = NSPopover()
+    let keyboard = KeyboardCommands()
     var vm: CalendarViewModel!
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -49,6 +50,9 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
             PopoverChrome.makeTransparent(popover)
         }
 
+        keyboard.install(viewModel: vm) { [weak self] in self?.popover.performClose(nil) }
+        postScriptedKeys()
+
         if let screen = NSScreen.main {
             let f = window.frame
             let top = screen.frame.maxY - f.maxY
@@ -75,10 +79,20 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
             vm.select(d)
             for i in items { vm.draftEvent = i; vm.addDraftEvent() }
         }
-        add(0, ["Design review · 2pm", "Ship CalBar build"])
-        add(3, ["Dentist"])
-        add(-2, ["Standup"])
-        add(6, ["Flight to SFO"])
+        // Spans the whole day so some rows are past and one is next whatever
+        // time the suite happens to run at. Includes text that must NOT parse.
+        add(0, [
+            "Water the plants",
+            "Standup 09:30",
+            "Design review 12pm",
+            "Ship CalBar build 15:00",
+            "Retro 17:30",
+            "Level 3 parking",
+            "Dinner 8pm",
+        ])
+        add(3, ["Dentist 11am"])
+        add(-2, ["Standup 09:30"])
+        add(6, ["Flight to SFO 6:45am"])
         vm.select(today)
 
         let env = ProcessInfo.processInfo.environment
@@ -86,11 +100,93 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
            let d = cal.date(byAdding: .day, value: off, to: today) {
             vm.select(d)
         }
+        if env["CALBAR_WEEKSTART"] == "sun" { vm.weekStartsMonday = false }
+        if env["CALBAR_TIME"] == "1" { vm.toggleDraftTime(); vm.draftEvent = "Retro" }
         if env["CALBAR_GOTO"] == "1" { vm.openGoToDate() }
         if env["CALBAR_EMPTY"] == "1" {
             vm.eventsByDay = [:]
             vm.rebuild()
         }
+    }
+}
+
+/// Key codes for the scripted sequences in CALBAR_KEYS.
+private let keyCodes: [String: (code: UInt16, chars: String)] = [
+    "left":   (123, "\u{F702}"),
+    "right":  (124, "\u{F703}"),
+    "down":   (125, "\u{F701}"),
+    "up":     (126, "\u{F700}"),
+    "return": (36,  "\r"),
+    "esc":    (53,  "\u{1B}"),
+    "tab":    (48,  "\t"),
+    "t":      (17,  "t"),
+    "a":      (0,   "a"),
+]
+
+extension PreviewDelegate {
+    /// Posts a comma-separated key sequence into the popover so the real
+    /// monitor -> view model -> render chain runs before the screenshot.
+    /// Prefix a key with "cmd-" for the command modifier, e.g. "cmd-right".
+    /// Reports the resulting state once the run loop has actually drained the
+    /// posted events — reading it inline would sample before dispatch.
+    func reportAfterDrain(_ sent: [String], after delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            self.log("keys=[\(sent.joined(separator: ","))] -> selected="
+                     + EventStore.key(for: self.vm.selectedDate)
+                     + " month=" + EventStore.key(for: self.vm.displayedMonth)
+                     + " goto=\(self.vm.showGoToDate)"
+                     + " shown=\(self.popover.isShown)"
+                     + " draft=\u{27}\(self.vm.draftEvent)\u{27}"
+                     + " editing=\(self.popover.contentViewController?.view.window?.firstResponder is NSTextView)")
+        }
+    }
+
+    func log(_ m: String) {
+        FileHandle.standardError.write((m + "\n").data(using: .utf8)!)
+    }
+
+    func postScriptedKeys() {
+        let script = ProcessInfo.processInfo.environment["CALBAR_KEYS"] ?? ""
+        guard !script.isEmpty else { return }
+        guard let window = popover.contentViewController?.view.window else { return }
+        window.makeKey()
+
+        // Keys are staggered rather than posted back-to-back. A real person's
+        // keystrokes are milliseconds apart, and some effects — SwiftUI moving
+        // FocusState into an AppKit first responder — need a run-loop turn to
+        // land. Zero-gap posting tests a situation that cannot happen.
+        // A lead-in before the first key: the panel blurs the text field as it
+        // opens, and a key posted into that window gets swallowed. A real user
+        // cannot type this fast, so waiting is faithful, not a fudge.
+        let leadIn = 0.2
+        let stagger = 0.03
+        var sent: [String] = []
+        for (index, token) in script.split(separator: ",").enumerated() {
+            var name = token.trimmingCharacters(in: .whitespaces).lowercased()
+            var flags: NSEvent.ModifierFlags = []
+            if name.hasPrefix("cmd-") { flags.insert(.command); name = String(name.dropFirst(4)) }
+            guard let key = keyCodes[name] else {
+                log("unknown key: \(name)")
+                continue
+            }
+            sent.append(name)
+            DispatchQueue.main.asyncAfter(deadline: .now() + leadIn + Double(index) * stagger) {
+                for phase in [NSEvent.EventType.keyDown, .keyUp] {
+                    guard let e = NSEvent.keyEvent(
+                        with: phase, location: .zero, modifierFlags: flags,
+                        timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: window.windowNumber, context: nil,
+                        characters: key.chars, charactersIgnoringModifiers: key.chars,
+                        isARepeat: false, keyCode: key.code
+                    ) else { continue }
+                    // postEvent, not sendEvent: local monitors hook events as
+                    // the run loop dequeues them, so sendEvent skips the monitor.
+                    NSApp.postEvent(e, atStart: false)
+                }
+            }
+        }
+        reportAfterDrain(sent, after: leadIn + Double(sent.count) * stagger + 0.5)
     }
 }
 

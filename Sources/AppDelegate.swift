@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let popover = NSPopover()
     private let statusMenu = NSMenu()
     private lazy var viewModel = CalendarViewModel()
+    private let keyboard = KeyboardCommands()
+    private let hotKey = HotKey()
     private var dayCheckTimer: Timer?
     private var currentIconDay = -1
 
@@ -19,9 +21,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewModel.syncLaunchAtLoginStatus()
         startDayRolloverTimer()
         observePopoverClose()
+        registerHotKey()
+    }
+
+    /// ⌃⌥C toggles the panel from anywhere. If the combination is already taken
+    /// CalBar carries on without it — a menu bar app losing its shortcut is not
+    /// worth refusing to launch over.
+    private func registerHotKey() {
+        let ok = hotKey.register { [weak self] in
+            guard let self else { return }
+            if self.popover.isShown {
+                self.popover.performClose(nil)
+            } else {
+                self.showPopover()
+            }
+        }
+        if ok {
+            NSLog("CalBar: ⌃⌥C registered")
+        } else {
+            NSLog("CalBar: could not register ⌃⌥C — another app already owns it")
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        hotKey.unregister()
         // Quitting counts as closing the panel: stamp the grace window now.
         viewModel.saveContext()
     }
@@ -35,6 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             queue: .main
         ) { [weak self] _ in
             self?.viewModel.saveContext()
+            // Leaving the monitor installed would intercept keys for the rest
+            // of the app's lifetime.
+            self?.keyboard.remove()
         }
     }
 
@@ -106,12 +132,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func showPopover() {
         guard let button = statusItem.button else { return }
         viewModel.prepareForPopoverOpen()
+        // CalBar is an LSUIElement agent, so it is not frontmost when summoned
+        // by the hotkey from another app. Without activating, the panel would
+        // open and then ignore every keystroke.
+        NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         // Strip the popover's own backing so the panel's glass refracts the
         // desktop instead of a second blur layer. Must run after show(), when
         // the popover window exists.
         PopoverChrome.makeTransparent(popover)
         popover.contentViewController?.view.window?.makeKey()
+        keyboard.install(viewModel: viewModel) { [weak self] in
+            self?.popover.performClose(nil)
+        }
     }
 
     @objc private func toggleLaunchAtLogin(_ sender: Any?) {
@@ -128,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self = self else { return }
             self.refreshStatusIcon()
             self.viewModel.refreshDayIfNeeded()
+            self.viewModel.refreshNowIfNeeded()
         }
     }
 }

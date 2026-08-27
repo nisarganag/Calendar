@@ -10,25 +10,6 @@ struct DayCell: Identifiable {
     let hasEvents: Bool
 }
 
-enum EventStore {
-    private static let storageKey = "CalBar.events.v1"
-    private static let formatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    static func key(for date: Date) -> String { formatter.string(from: date) }
-
-    static func load() -> [String: [String]] {
-        (UserDefaults.standard.dictionary(forKey: storageKey) as? [String: [String]]) ?? [:]
-    }
-
-    static func save(_ events: [String: [String]]) {
-        UserDefaults.standard.set(events, forKey: storageKey)
-    }
-}
-
 extension Date {
     func startOfMonth(using calendar: Calendar) -> Date {
         calendar.date(from: calendar.dateComponents([.year, .month], from: self)) ?? self
@@ -70,10 +51,13 @@ final class CalendarViewModel: ObservableObject {
         }
     }
     @Published var launchAtLogin: Bool = false
-    @Published var eventsByDay: [String: [String]] {
+    @Published var eventsByDay: [String: [CalEvent]] {
         didSet { EventStore.save(eventsByDay) }
     }
     @Published var draftEvent: String = ""
+
+    /// Time chosen in the add row. nil means the event is untimed.
+    @Published var draftMinutes: Int?
 
     // MARK: Go to date
     @Published var showGoToDate: Bool = false
@@ -229,6 +213,31 @@ final class CalendarViewModel: ObservableObject {
         selectedDate = date
     }
 
+    /// Selects `date`, bringing the displayed month along if the date falls
+    /// outside it. Mouse and keyboard both route through here so the two can't
+    /// drift apart.
+    func selectTracking(_ date: Date) {
+        selectedDate = date
+        let target = date.startOfMonth(using: calendar)
+        guard target != displayedMonth else { return }
+        displayedMonth = target
+        rebuild()
+    }
+
+    /// Moves the selection by whole days.
+    ///
+    /// Uses calendar arithmetic rather than a seconds offset: ±86400 is wrong
+    /// across a daylight-saving boundary and would skip or repeat a day twice a
+    /// year.
+    func moveSelection(byDays delta: Int) {
+        guard let next = calendar.date(byAdding: .day, value: delta, to: selectedDate) else { return }
+        selectTracking(next)
+    }
+
+    /// Set to request keyboard focus in the "Add event…" field; the panel
+    /// clears it once focus lands.
+    @Published var focusEventField: Bool = false
+
     func isSelected(_ c: DayCell) -> Bool {
         c.date.map { calendar.isDate($0, inSameDayAs: selectedDate) } ?? false
     }
@@ -285,8 +294,42 @@ final class CalendarViewModel: ObservableObject {
 
     // MARK: - Events
 
-    var selectedEvents: [String] {
-        eventsByDay[EventStore.key(for: selectedDate)] ?? []
+    /// The selected day's events in display order: untimed first, then timed
+    /// ascending.
+    var selectedEvents: [CalEvent] {
+        EventStore.sorted(eventsByDay[EventStore.key(for: selectedDate)] ?? [])
+    }
+
+    /// Minutes from midnight, refreshed by the day-rollover timer. Drives which
+    /// events read as past and which one is next.
+    @Published var nowMinutes: Int = CalendarViewModel.minutesNow()
+
+    /// Agenda styling applies only to today; any other day renders neutrally.
+    var selectedDayIsToday: Bool {
+        calendar.isDate(selectedDate, inSameDayAs: today)
+    }
+
+    /// Index into `selectedEvents` of the next upcoming event, or nil.
+    var nextUpIndex: Int? {
+        guard selectedDayIsToday else { return nil }
+        return EventStore.nextUpIndex(in: selectedEvents, atOrAfter: nowMinutes)
+    }
+
+    func isPast(_ event: CalEvent) -> Bool {
+        guard selectedDayIsToday, let m = event.minutes else { return false }
+        return m < nowMinutes
+    }
+
+    static func minutesNow(_ date: Date = Date()) -> Int {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return (c.hour ?? 0) * 60 + (c.minute ?? 0)
+    }
+
+    /// Called by the existing 30s timer so the agenda keeps up with the clock
+    /// without a second timer of its own.
+    func refreshNowIfNeeded() {
+        let m = Self.minutesNow()
+        if m != nowMinutes { nowMinutes = m }
     }
 
     var selectedDayTitle: String {
@@ -296,17 +339,47 @@ final class CalendarViewModel: ObservableObject {
     }
 
     func addDraftEvent() {
-        let text = draftEvent.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard let event = EventStore.makeEvent(text: draftEvent, pickedMinutes: draftMinutes) else { return }
         let key = EventStore.key(for: selectedDate)
-        eventsByDay[key, default: []].append(text)
+        eventsByDay[key, default: []].append(event)
         draftEvent = ""
+        // Cleared on purpose. A time left armed would silently stamp itself on
+        // the next quick note, which is worse than clicking the clock again.
+        draftMinutes = nil
         rebuild()
     }
 
-    func removeEvents(at offsets: IndexSet) {
+    /// Clock button: arms a time at the next half hour, or clears it.
+    func toggleDraftTime() {
+        draftMinutes = draftMinutes == nil
+            ? EventStore.nextHalfHour(from: Self.minutesNow())
+            : nil
+    }
+
+    /// Bridges `draftMinutes` to the Date a DatePicker needs, anchored to the
+    /// selected day so the picker shows the right context.
+    var draftTimeBinding: Binding<Date> {
+        Binding(
+            get: { [weak self] in
+                guard let self else { return Date() }
+                let start = self.calendar.startOfDay(for: self.selectedDate)
+                return self.calendar.date(byAdding: .minute,
+                                          value: self.draftMinutes ?? 0,
+                                          to: start) ?? start
+            },
+            set: { [weak self] newValue in
+                guard let self else { return }
+                let c = self.calendar.dateComponents([.hour, .minute], from: newValue)
+                self.draftMinutes = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+            }
+        )
+    }
+
+    /// Deletes by identity rather than position: the list is displayed sorted,
+    /// so a row's index no longer matches the stored order.
+    func removeEvent(id: UUID) {
         let key = EventStore.key(for: selectedDate)
-        eventsByDay[key]?.remove(atOffsets: offsets)
+        eventsByDay[key]?.removeAll { $0.id == id }
         if eventsByDay[key]?.isEmpty == true {
             eventsByDay.removeValue(forKey: key)
         }
